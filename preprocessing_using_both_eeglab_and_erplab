@@ -1,0 +1,410 @@
+%%  Initialization
+clc; clear;
+cd('/Users/soankim/Desktop/Experiment/December/auditory_EEG/ERP_final')
+save_everything  = 1;
+
+%% EventMarker Shifting (Due to EPrime error)
+cd('/Users/soankim/Desktop/Experiment/December/auditory_EEG/')
+
+rawDataFiles = dir('*.vhdr');
+for  subjID = 1:length(rawDataFiles)
+    loadName = rawDataFiles(subjID).name;
+    dataName = loadName(1:end-5);
+    
+    %  Step1:  Import  data.
+    EEG = pop_loadbv('.', loadName);
+    EEG.setname = dataName;
+    
+    %  Step  2:  Import  channel  info
+    EEG = pop_chanedit(EEG,'lookup', '/Users/soankim/Downloads/eeglab/plugins/dipfit2.3/standard_BESA/standard-10-5-cap385.elp');
+    
+    %  Step  3:  Resample to 250Hz
+    EEG = pop_resample(EEG, 250);
+    
+    %  Step  4:  Filtering
+    EEG = pop_eegfiltnew(EEG, 'locutoff',0.1,'hicutoff',30);
+    
+     %  Step  5:  Re-referencing.
+%     EEG = pop_reref(EEG, [31 32]);
+    
+    %  Step  6 : Saving.
+    EEG = eeg_checkset( EEG, 'eventconsistency');
+    % Path to the folder containing the current subject's data
+    for index = 1:length(EEG.event)
+        if strcmp(EEG.event(index).code,'Stimulus')
+            EEG.event(index).latency = EEG.event(index).latency+0.3*250;
+        end;
+    end;
+    EEG = eeg_checkset( EEG, 'eventconsistency');
+    
+    EEG.setname = [dataName(1:3) '_fil']
+    
+    if (save_everything)
+        EEG = pop_saveset(EEG, 'filename', [EEG.setname '.set'], 'filepath', pwd);
+    end;
+    
+%     events = eeg_eventtable(EEG, 'exportFile', [dataName '.txt']);
+end;
+
+rawDataFiles_set = dir('*_fil.set'); 
+for  subjID_set = 1:length(rawDataFiles_set)
+    loadName_set = rawDataFiles_set(subjID_set).name;
+    dataName_set = loadName_set(1:end-4);
+    EEG = pop_loadset('filename', loadName_set ,'filepath',pwd);
+    
+%     pop_eegplot(EEG, 1, 1, 1)
+    EEG = pop_saveset(EEG, 'filename', [dataName_set '_events.set'], 'filepath', pwd);
+end;
+
+%% Marking the lexical decision responses to event list %%
+rawDataFiles_set = dir('*_fil.set'); 
+for  subjID_set = 1:length(rawDataFiles_set)
+    loadName_set = rawDataFiles_set(subjID_set).name;
+    dataName_set = loadName_set(1:end-4);
+    EEG = pop_loadset('filename', loadName_set ,'filepath',pwd);
+    
+%%%%% I've stored the response addition codes separately for memory efficiency.
+%     pop_eegplot(EEG, 1, 1, 1)
+    EEG = pop_saveset(EEG, 'filename', [dataName_set '_events.set'], 'filepath', pwd);
+end;
+
+%% Creating eventlistt for the continuous EEG("_elist.txt")
+total = (1:N); %% The total number of participants
+invalid = [N]; %% Subject numbers to be rejected due to their poor EEG quality
+
+[valid, idx] = setdiff(total,invalid);
+    
+for files = dir('*_fil_events.set')
+    k = 1:length(files);
+    filenames = {files(k).name}; 
+    needed = filenames(idx);
+    
+    for index = 1:length(needed)
+        loadname = needed(index);
+        
+        EEG = pop_loadset('filename', loadname ,'filepath',pwd);
+        EEG = pop_creabasiceventlist( EEG , 'AlphanumericCleaning', 'on', 'Newboundary', { -99 }, 'Stringboundary', { 'boundary' }, 'Warning', 'off' );
+        
+        if (save_everything)
+            EEG = pop_saveset(EEG, 'filename', [num2str(EEG.datfile(1:3)) '_elist'], 'filepath', pwd);
+            EEG = pop_export(EEG,[num2str(EEG.datfile(1:3)) '_elist' '.txt'],'precision',4);
+        end;
+    end;
+end;
+
+%% ############# ICA #############
+total = (1:N);
+invalid = [N];
+[valid, idx] = setdiff(total,invalid);
+    
+for files = dir('*_elist.set')
+    k = 1:length(files);
+    filenames = {files(k).name}; % I need it all!
+    needed = filenames(idx);
+    
+    for index = 1:length(needed)
+        loadname = needed(index);
+        
+        EEG = pop_loadset('filename', loadname ,'filepath',pwd);
+        % Run ICA
+        EEG = pop_runica(EEG, 'icatype','runica', 'dataset',1,'options',{'extended' 0});
+        EEG = pop_chanedit(EEG,'lookup', '/Users/soankim/Downloads/eeglab/plugins/dipfit2.3/standard_BESA/standard-10-5-cap385.elp');
+        %EEG = eeg_checkset(EEG, 'eventconsistency'); % check for out of bound events [ALLEEG EEG] = eeg_store(ALLEEG, EEG, CURRENTSET); % store dataset in ALLEEG eeglab redraw; % redraw GUI
+        EEG = eeg_checkset(EEG, 'eventconsistency'); % check for out of bound events [ALLEEG EEG] = eeg_store(ALLEEG, EEG, CURRENTSET); % store dataset in ALLEEG eeglab redraw; % redraw GUI
+        pop_saveset(EEG, [num2str(EEG.datfile(1:3)) '_ica'], EEG.filepath);
+    end;
+end;
+
+%% MARA & ADJUST
+rawDataFiles_set = dir('*_ica.set');
+for  subjID_set = 1:length(rawDataFiles_set)
+    loadName_set = rawDataFiles_set(subjID_set).name;
+    dataName_set = loadName_set(1:end-4);
+    EEG = pop_loadset('filename', loadName_set ,'filepath',pwd);
+%     [artcomps, info] = MARA(EEG);
+%     eegplugin_MARA(artcomps)
+%     display(artcomps)
+    [ALLEEG,EEG,CURRENTSET] = processMARA(ALLEEG,EEG,CURRENTSET);
+    pop_ADJUST_interface(ALLEEG,EEG,CURRENTSET);
+end;
+
+%% Use Binlister to sort the bins & EPOCH THE CONTINUOUS DATA(FOR SINGLE-TRIAL DATA) & BASELINE CORRECTION
+%%%%%%%%%%%%%%% LOADING #1's DATA %%%%%%%%%%%%%%%
+total = (1:N);
+invalid = [N];
+[valid, idx] = setdiff(total,invalid);
+    
+for files = dir('*_rm_comp.set')
+    k = 1:length(files);
+    filenames = {files(k).name}; 
+    needed = filenames(idx);
+    
+    for index = 1:length(needed)
+        loadname = needed(index);
+        
+        EEG = pop_loadset('filename', loadname ,'filepath',pwd);
+        fprintf('\n\n\n**** %s: Running BinLister ****\n\n\n', EEG.datfile(1:3));
+        
+        EEG  = pop_binlister( EEG , 'BDF', '/Users/soankim/Desktop/Experiment/December/auditory_EEG/essentials/bin_list.txt', 'ImportEL', 'no', 'Saveas', 'off', 'SendEL2', 'EEG', 'Warning', 'off' );
+        EEG = pop_epochbin( EEG , [-200.0  800.0],  'pre');
+        %     EEG = pop_selectevent(EEG,  'omitepoch', M(subjID_set), 'deleteevents','off','deleteepochs','on','invertepochs','off');
+        if (save_everything)
+            EEG = pop_saveset(EEG, [num2str(EEG.datfile(1:3)) '_binned'], EEG.filepath);
+        end;
+    end;
+end;
+
+%% 5. Labeling Channels. Upto 32. and re-reference to the average of the earlobes
+    
+for files = dir('*_binned.set')
+    k = 1:length(files);
+    filenames = {files(k).name}; 
+    needed = filenames(idx);
+    
+    for index = 1:length(needed)
+        loadname = needed(index);
+        
+        EEG = pop_loadset('filename', loadname ,'filepath',pwd);
+        
+        EEG = pop_eegchanoperator(EEG, '/Users/soankim/Desktop/Experiment/December/auditory_EEG/essentials/re_reference(mastoid).txt');
+        if (save_everything)
+            EEG = pop_saveset(EEG, [num2str(EEG.datfile(1:3)) '_chan_op'], EEG.filepath);
+        end;
+    end;
+end;
+
+%% 6. Detecting blinks during the presentation of stimuli and making the eventlists
+% Now that the artifactual voltages produced by the blinks have been eliminated, mark the trials in which blinks occur during stimulus presentation so that these trials can be rejected. 
+
+ROI = [3:10 15:27]; # Electrodes to be analyzed
+
+for files = dir('*_chan_op.set')
+    k = 1:length(files);
+    filenames = {files(k).name}; % I need it all!
+    needed = filenames(idx);
+    
+    for index = 1:length(needed)
+        loadname = needed(index);
+        
+        EEG = pop_loadset('filename', loadname ,'filepath',pwd);
+        
+        %     Artifact Detection Blink rejection Test period [-200 200], Blink width 400,Normalized cross covariance threshold 0.7, channel 30 Mark flag 1 and 8
+        % 'Crosscov'	- normalized cross-covariance (ccov). Value between 0 to 1. Higher ccov means higher similarity
+        EEG = pop_artblink(EEG, 'Twindow', [-200 200], 'Blinkwidth', 400, 'Crosscov', 0.7, 'Channel', 30, 'Flag', [1 6]); %0.7
+        
+        %Moving window peak-to-peak threshold
+        EEG = pop_artmwppth( EEG , 'Channel',  ROI, 'Flag', [ 1 7], 'Review', 'off', 'Threshold',  100, 'Twindow', [ -200 800], 'Windowsize',  200, 'Windowstep',  50 );
+        
+        % Artifact detection. Step-like artifacts in the bipolar(Saccadic movement) VEOG channel (channel 30, created earlier with Channel Operations)
+        %     Threshold = 30 uV; Window width = 400 ms; Window step = 10 ms; Flags to be activated = 1 & 3
+        
+        EEG = pop_saveset(EEG, [num2str(EEG.datfile(1:3)) '_ar'], EEG.filepath);
+        EEG = pop_exporteegeventlist(EEG, [num2str(EEG.datfile(1:3)) '_eventlist.txt']);
+        
+        % Report percentage of rejected trials (collapsed across all bins)
+        artifact_proportion = getardetection(EEG);
+        fprintf('%s: Percentage of rejected trials was %1.2f\n', EEG.datfile(1:3), artifact_proportion)
+    end;
+end;
+
+%% Import eventlist and epoching the ICA pruned data
+
+for files = dir('*_rm_comp.set')
+    k = 1:length(files);
+    filenames = {files(k).name}; % I need it all!
+    needed = filenames(idx);
+    
+    for index = 1:length(needed)
+        loadname = needed(index);
+        
+        EEG = pop_loadset('filename', loadname ,'filepath',pwd);
+        
+        text_name = [pwd '/' num2str(EEG.datfile(1:3)) '_eventlist.txt'];
+        EEG = pop_importeegeventlist( EEG, text_name, 'ReplaceEventList', 'on' );
+        
+        EEG = pop_epochbin(EEG , [-200.0  800.0],  'pre');
+        
+        if (save_everything)
+            EEG = pop_saveset(EEG, [num2str(EEG.datfile(1:3)) '_overwritten'], EEG.filepath);
+        end;
+    end;
+end;
+
+%% Synchronize Artifacts  
+% EEG.EVENTLIST.bdf was not synchronized due to reaction time measurement was not found in this dataset.
+
+for files = dir('*_overwritten.set')
+    k = 1:length(files);
+    filenames = {files(k).name}; 
+    needed = filenames(idx);
+    
+    for index = 1:length(needed)
+        loadname = needed(index);
+        
+        EEG = pop_loadset('filename', loadname ,'filepath',pwd);
+        EEG = pop_syncroartifacts(EEG, 'Direction', 'bidirectional');
+        % If you don't select 'bidirectional', bins are not to be rejected.
+        %All EEG.reject fields are empty, so no artifact rejection has been performed in EEGLAB...
+        
+        if (save_everything)
+            EEG = pop_saveset(EEG, [num2str(EEG.datfile(1:3)) '_sync'], EEG.filepath);
+        end;
+    end;
+end;
+
+%% AVERAGE THE SINGLE-TRIAL EEG EPOCHS TO CREATE SINGLE-SUBJECT AVERAGED ERP WAVEFORMS)
+for files = dir('*_sync.set')
+    k = 1:length(files);
+    filenames = {files(k).name}; % I need it all!
+    needed = filenames(idx);
+    
+    for index = 1:length(needed)
+        loadname = needed(index);
+        
+        EEG = pop_loadset('filename', loadname ,'filepath',pwd);
+        
+        % Sync one more time after rejecting error trials via eeglab %% Error!
+        EEG = pop_syncroartifacts(EEG, 'Direction', 'bidirectional');
+        
+        fprintf('\n\n\n**** %s: Averaging ****\n\n\n', EEG.datfile(1:3));
+        ERP = pop_averager( EEG , 'Criterion', 'good', 'ExcludeBoundary', 'on', 'SEM', 'on' );
+        ERP.erpname = [num2str(EEG.datfile(1:3)) '_ERPs'];  % name for erpset menu
+        pop_savemyerp(ERP, 'erpname', ERP.erpname, 'filename', [ERP.erpname '.erp'], 'filepath', pwd, 'warning', 'off');
+    end;
+end;
+
+%% 11. BIN OPERATIONS. MAKE DIFFERENCE WAVES
+rawDataFiles = dir('*_ERPs.erp'); 
+for  subjID = 1:length(rawDataFiles)
+    loadName = rawDataFiles(subjID).name;
+    dataName = loadName(1:end-5);
+    
+    ERP = pop_loaderp( 'filename', loadName, 'filepath', pwd );
+    %try
+    ERP = pop_binoperator( ERP, '/Users/soankim/Desktop/Experiment/December/auditory_EEG/essentials/my_bin_operations.txt');
+    ERP.erpname = [num2str(loadName(1:3)) '_plus'];
+    pop_savemyerp(ERP, 'erpname', ERP.erpname, 'filename', [ERP.erpname '.erp'], 'filepath', pwd, 'warning', 'off');
+end;
+
+%% Artifacts report
+rawDataFiles = dir('*_plus.erp');
+for  subjID = 1:length(rawDataFiles)
+    loadName = rawDataFiles(subjID).name;
+    dataName = loadName(1:end-5);
+    
+    ERP = pop_loaderp( 'filename', loadName, 'filepath', pwd );
+    ERP.erpname = [num2str(loadName(1:3)) '_ERPs'];
+    pop_summary_AR_erp_detection(ERP, [ERP.erpname '_trials_report.txt']);
+end;
+
+%% MAKE GRAND AVERAGES ACROSS SUBJECTS(LEAVE-ONE-OUT GRAND AVERAGE FOR JACKKNIFING)
+for files = dir('*_plus.erp')
+    k = 1:length(files);
+    filenames = {files(k).name}; % I need it all!
+    needed = filenames(idx);
+
+[ERP ALLERP] = pop_loaderp( 'filename', needed, 'filepath', '/Users/soankim/Desktop/Experiment/December/auditory_EEG/ERP_final' );                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+
+ERP = pop_erpchanoperator( ERP, {  'nch1 = ch1 Label Fp1',  'nch2 = ch2 Label Fp2',  'nch3 = ch3 Label F3',  'nch4 = ch4 Label F4',...
+    'nch5 = ch5 Label C3',  'nch6 = ch6 Label C4',  'nch7 = ch7 Label P3',  'nch8 = ch8 Label P4',  'nch9 = ch9 Label O1',  'nch10 = ch10 Label O2',...
+    'nch11 = ch11 Label F7',  'nch12 = ch12 Label F8',  'nch13 = ch13 Label T7',  'nch14 = ch14 Label T8',  'nch15 = ch15 Label P7',...
+    'nch16 = ch16 Label P8',  'nch17 = ch17 Label Fz',  'nch18 = ch18 Label Cz',  'nch19 = ch19 Label Pz',  'nch20 = ch20 Label FC1',  'nch21 = ch21 Label FC2',...
+    'nch22 = ch22 Label CP1',  'nch23 = ch23 Label CP2',  'nch24 = ch24 Label FC5',  'nch25 = ch25 Label FC6',  'nch26 = ch26 Label CP5',...
+    'nch27 = ch27 Label CP6',  'nch28 = ch28 Label TP9',  'nch29 = ch29 Label TP10',  'nch30 = ch30',  'nch31 = ( avgchan(3, 20, 24)) Label left_anterior',  'nch32 = ( avgchan(4, 21, 25)) Label right_anterior',...
+    'nch33 = ( avgchan(5, 22, 26)) Label left_middle', 'nch34 = ( avgchan(6, 23, 27)) Label right_middle',  'nch35 = ( avgchan(7, 9, 15)) Label left_posterior',...
+    'nch36 = ( avgchan(8, 10, 16)) Label right_posterior', 'nch37 = ( avgchan(17, 18, 19)) Label mid_line'} , 'ErrorMsg', 'popup', 'KeepLocations',  0, 'Warning', 'on' );
+
+%%%%%%%%%% JACK KNIFE %%%%%%%%%%%%%  
+    %ALLERP = pop_jkgaverager( ALLERP , 'Criterion',50, 'Erpname', '30_JK_filtered', 'Erpsets',1:length(valid), 'SEM', 'on');% GUI: 31-Mar-2019 07:35:30    
+    
+%%%%%%%% REAL GRANDAVERAGE %%%%%%%%%   
+%     ERP = pop_gaverager( ALLERP , 'Criterion',  50, 'Erpsets',  1:length(valid), 'ExcludeNullBin', 'on', 'SEM', 'on' );
+%%%%%%%%%% Weighted average based on number of trials %%%%%%%%%   
+%% 11. MEASURE AMPLITUDES AND LATENCIES FROM LEAVE-ONE-OUT GRAND AVERAGES
+ERP = pop_loaderp( 'filename', [num2str(length(valid)) '_subj' '_30Hz_JK.erp'], 'filepath', '/Users/soankim/Desktop/Experiment/December/auditory_EEG/ERP_final' );
+
+ERP = pop_ploterps( ERP,  1:4,  31:38 , 'AutoYlim', 'on', 'Axsize', [ 0.05 0.08], 'Blc', 'pre', 'Box', [ 7 6], 'ChLabel', 'on', 'FontSizeChan',...
+    10, 'FontSizeLeg',  12, 'FontSizeTicks',  10, 'LegPos', 'up', 'LineWidth',  1, 'Maximize',...
+    'on', 'Position', [ 183.75 15.0714 106.857 31.9286], 'Style', 'Classic', 'Tag', 'ERP_figure', 'Transparency',  0, 'xscale',...
+    [ -200.0 796.0   -200:200:600 ], 'YDir', 'normal' );
+
+% ERP = pop_scalplot( ERP,  8:11, [ 300 500] , 'Blc', 'pre', 'Colormap', 'jet', 'Electrodes', 'on', 'FontName', 'Courier New', 'FontSize',  10);
+%  'Legend', 'bn-la', 'Maplimit', 'maxmin', 'Mapstyle', 'both', 'Maptype', '2D', 'Mapview', '+X', 'Plotrad',  0.55, 'Value', 'mean' );
+
+%% Finally, GND!!
+ROI = {'F3', 'FC5', 'FC1', 'C3', 'CP1', 'CP5', 'P3', 'P7', 'O1', 'F4', 'FC2', 'FC6', 'C4', 'CP2', 'CP6', 'P4', 'O2', 'P8'};
+one = {'F3', 'FC5', 'FC1'};
+two = {'C3', 'CP1', 'CP5'};
+three = {'P3', 'P7', 'O1'};
+four = {'F4', 'FC2', 'FC6'};
+five = {'C4', 'CP2', 'CP6'};
+six = {'P4', 'O2', 'P8'};
+mid = {'Fz', 'Cz', 'Pz'};
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+GND = erplab2GND(needed, 'include_chans', ROI, 'out_fname', 'test');
+
+%%%%%%%%%%%%%% Bin difference %%%%%%%%%%%%%%%%
+GND = bin_dif(GND, 1, 3, 'ON+ - ON- given PN+'); %12
+GND = bin_dif(GND, 2, 4, 'ON+ - ON- given PN-'); %13
+GND = bin_dif(GND, 1, 2, 'PN+ - PN- given ON+'); %14
+GND = bin_dif(GND, 3, 4, 'PN+ - PN- given ON-'); %15
+GND = bin_dif(GND, 1, 4, 'PN+ - PN- given ON-'); %16
+GND = bin_dif(GND, 2, 3, 'PN+ - PN- given ON-'); %17
+
+plot_wave(GND, [1 2 3 4]);
+
+%% Export ERP
+total = (1:54); % Please omit the missing subjects!(41-44)
+invalid = [12:26, 31, 45:47, 50:54, 5, 11, 32, 48]%, 11, 27, 30, 38];
+[valid, idx] = setdiff(total,invalid);
+
+trigger = 4;
+
+for files = dir('*_plus.erp')
+    k = 1:length(files);
+    
+    filenames = {files(k).name}; % I need it all!
+    needed = filenames(idx);
+   
+for needed_idx = 1:length(needed)
+    individual = needed(needed_idx);
+    
+    [ERP ALLERP] = pop_loaderp( 'filename', individual, 'filepath', '/Users/soankim/Desktop/Experiment/December/auditory_EEG/ERP_final' );
+    
+    pop_export2text( ERP, ['/Users/soankim/Desktop/S' num2str(trigger) '/' ERP.erpname(1:3) '_' num2str(trigger) '.txt'],  trigger, 'electrodes', 'on', 'precision',  2, 'time', 'on', 'timeunit',  0.001, 'transpose', 'on' );
+end;
+end;
+
+%% Measurement Tool
+[ERP ALLERP] = pop_loaderp( 'filename', needed, 'filepath',...
+ '/Users/soankim/Desktop/Experiment/December/auditory_EEG/' );
+ROI = [3:10 15:27];
+one = [3 20 24]; % left_anterior
+name1 = 'left_anterior';
+
+two = [4 21 25]; % right_anterior
+name2 = 'right_anterior';
+
+three = [5 22 26]; %left_central
+name3 = 'left_central';
+
+four = [6 23 27]; % right_central
+name4 = 'right_central';
+
+five = [7 9 15]; % left_posterior
+name5 = 'left_posterior';
+
+six = [8 10 16]; % right_posterior
+name6 = 'right_posterior';
+
+mid = [17 18 19]; % mid-line
+name7 = 'mid-line';
+
+for bin_num = 1:4
+%     for num = 1:length(ROI)
+%         chan = ROI(num);
+        ALLERP = pop_geterpvalues(ALLERP, [240 320],  bin_num, three, 'Baseline', 'pre', 'Erpsets',  1:26, 'FileFormat', 'long', 'Filename',...
+            ['/Users/soankim/Desktop/regression_win/', name3, '_', num2str(bin_num), '.txt'], 'Fracreplace', 'NaN', 'InterpFactor',  1, 'Measure', 'meanbl', 'PeakOnset',  1, 'Resolution',  2, 'SendtoWorkspace',...
+ 'on' );
+end;
+% end;
