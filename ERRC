@@ -1,0 +1,78 @@
+excel = importdata('/Users/soankim/Desktop/four_normalized.xlsx');
+
+chan_li = [3:10, 15:16, 20:27];
+
+max_iteration  = 5000;
+level = 0.05;
+brain_beta =[];
+for ch_idx = 1:length(chan_li)
+    channel = chan_li(ch_idx);
+    disp(channel);
+    % time_li = [1:250]
+    % for t_idx = 1:length(time)
+    %     time = time_li(t_idx)
+    % time = 107
+    % channel = 3
+    d = squeeze(ERP.bindata(channel, :, [1:15, 17:25, 27:33, 35:36, 39:47, 49:52, 54:55, 57:72, 74:87, 89:116]));
+    % d = squeeze(d(1,time,:));
+    
+    X = num2cell(excel.data);
+    X = cell2mat(X);
+    X0 = [X ones(size(X,1),1)];
+    
+    b = pinv(X0)*d';
+    
+    tables = randi(size(d,2),size(d,2),max_iteration);
+    
+    boot_beta_sets =[];
+    
+    org_betas = pinv(X0)*d';
+    
+    for B=1:max_iteration
+        Betas = pinv(X0(tables(:,B),:))*d(:,tables(:,B))';
+        boot_beta_sets(B,:,:) = Betas;
+    end
+    
+    for condi=1:4,
+        
+        rsb = sort(squeeze(boot_beta_sets(:,condi,:)),1);
+        %             rsb = sort(boot_beta_sets(:,behavi),1);
+        adj_nboot = max_iteration - sum(isnan(rsb));
+        adj_low = round((level*adj_nboot)/2);
+        adj_high = adj_nboot - adj_low;
+        %
+        for tmpi=1:size(rsb,2)
+            CI = [rsb(adj_low(tmpi),tmpi) ; rsb(adj_high(tmpi),tmpi)];
+            BINT(tmpi,:)= CI';
+        end
+        
+        boot_h = (BINT(:,1) > 0) + (BINT(:,2) < 0);
+        brain_beta(channel,condi).org_betas = org_betas;
+        brain_beta(channel,condi).val = org_betas(condi,find(boot_h));
+        brain_beta(channel,condi).ids = (find(boot_h));
+    end
+    
+    
+%     dlmwrite(['/Users/soankim/Desktop/ERRC/ERRC_time_', num2str(channel), '.csv'],b,'delimiter',',','-append');
+    % xlswrite(['/Users/soankim/Desktop/ERRC_.csv'], b, 'append')
+    % save(['/Users/soankim/Desktop/ERRC_for_channel_', num2str(channel), '.txt'], 'b', '-ascii', '-append');
+    
+end;
+
+colormaps = [ 1 0 0 ; 0 1 0; 0 0 1; 0 0 0];
+figure();
+for ch_idx = 1:length(chan_li)
+    subplot(4,5,ch_idx);
+    channel = chan_li(ch_idx);
+    
+    tg_beta = brain_beta(channel,condi).org_betas;
+   
+    for condi=1:4,
+        plot(tg_beta(condi,:),'color',colormaps(condi,:));
+        hold on; 
+        plot(brain_beta(channel,condi).ids,tg_beta(condi,brain_beta(channel,condi).ids),'x','color',colormaps(condi,:),'linew',2);
+    end
+    
+    title(sprintf('CH %02d',channel));
+    
+end
