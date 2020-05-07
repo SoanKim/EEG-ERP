@@ -3,7 +3,7 @@ clc; clear;
 cd('/Users/soankim/Desktop/Experiment/December/auditory_EEG/ERP_final')
 save_everything  = 1;
 
-%% 0. LATENCY SHIFTING
+%% EventMarker SHIFTING
 cd('/Users/soankim/Desktop/Experiment/December/auditory_EEG/')
 
 rawDataFiles = dir('*.vhdr');
